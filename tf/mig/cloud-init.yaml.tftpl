@@ -1,0 +1,32 @@
+#cloud-config
+
+write_files:
+  - path: /etc/envoy/envoy.yaml
+    permissions: "0644"
+    owner: root
+    content: |
+      ${indent(6, envoy_config)}
+  - path: /etc/systemd/system/envoy.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=Envoy Forward Proxy
+      After=docker.service network-online.target
+      Wants=docker.service network-online.target
+
+      [Service]
+      Restart=always
+      RestartSec=3
+      ExecStartPre=/bin/sh -c 'iptables -C INPUT -p tcp -m multiport --dports 80,8080 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp -m multiport --dports 80,8080 -j ACCEPT'
+      ExecStartPre=/bin/sh -c 'iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080'
+      ExecStartPre=-/usr/bin/docker rm -f envoy
+      ExecStart=/usr/bin/docker run --rm --name=envoy --network=host -v /etc/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro ${envoy_image} -c /etc/envoy/envoy.yaml
+      ExecStop=/usr/bin/docker stop envoy
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now envoy.service
